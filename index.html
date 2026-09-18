@@ -168,7 +168,7 @@ body{font-family:var(--font);background:var(--canvas);color:var(--ink);
   <footer class="statusbar">
     <span class="tag tag-y">곱셈구구에 맞게</span>
     <span class="tag tag-t">한 줄 세 칸이 곱셈식</span>
-    <span class="tag tag-c">긴 면은 붙지 않게</span>
+    <span class="tag tag-c">긴 면 전체가 붙지 않게</span>
     <span class="msg" id="msg">칩을 끌어서 게임판에 연결해 보세요.</span>
   </footer>
 </div>
@@ -176,7 +176,7 @@ body{font-family:var(--font);background:var(--canvas);color:var(--ink);
 
 <script>
 "use strict";
-/* 가우스X : 칩=1x2 나무 조각(수 n, 배수 n*k) / 한 줄 세 칸이 a x b = c / 긴 면끼리 붙지 않음 */
+/* 가우스X : 칩=1x2 나무 조각(수 n, 배수 n*k) / 한 줄 세 칸이 a x b = c / 긴 면이 완전히 맞닿으면 안 됨(절반 접촉은 허용) */
 var DIRS=[[0,1],[1,0],[0,-1],[-1,0]];
 var ROT={"0,1":0,"1,0":90,"0,-1":180,"-1,0":270};
 var COLORS=["#1c1c1e","#5a4fd6","#d07d12","#1a8a5a","#cf3b2f","#3a9ad9","#7b8089","#b8409a"];
@@ -205,22 +205,17 @@ function attachments(w){
 function newBoard(){ return {cells:{},chips:[]}; }
 function cellAt(b,r,c){ return b.cells[key(r,c)]||null; }
 function freeAt(b,r,c){ return !b.cells[key(r,c)]; }
-/* 이웃 칸의 칩이 내 진행 방향(d)과 나란히 놓였으면 = 긴 면끼리 닿음 */
-function parallelNeighbor(getCell,r,c,d){
-  var X=getCell(r,c),P,Q;
-  if(!X) return false;
-  P=getCell(r+d[0],c+d[1]); Q=getCell(r-d[0],c-d[1]);
-  return !!((P&&P.id===X.id)||(Q&&Q.id===X.id));
-}
-/* (r,c)에서 방향 d로 놓을 때, 긴 면이 다른 칩의 긴 면과 닿지 않는지 (반 칸만 겹쳐도 위반) */
+/* (r,c)에서 방향 d로 놓을 때 긴 면 판정
+   - 칩의 긴 면은 두 칸(선분 2개)으로 이루어진다.
+   - 한쪽 긴 면의 두 선분이 "모두" 다른 칩과 닿으면 위반(= 긴 면이 완전히 맞닿음).
+   - 두 선분 중 하나만 닿는 절반 접촉은 허용한다. */
 function longFaceOk(getCell,r,c,d){
-  var e=[d[1],-d[0]],pts=[[r,c],[r+d[0],c+d[1]]],i,j,s,p;
+  var e=[d[1],-d[0]], pts=[[r,c],[r+d[0],c+d[1]]], i, s, a, b;
   for(i=0;i<2;i++){
     s=(i===0)?e:[-e[0],-e[1]];
-    for(j=0;j<2;j++){
-      p=pts[j];
-      if(parallelNeighbor(getCell,p[0]+s[0],p[1]+s[1],d)) return false;
-    }
+    a=getCell(pts[0][0]+s[0], pts[0][1]+s[1]);
+    b=getCell(pts[1][0]+s[0], pts[1][1]+s[1]);
+    if(a&&b) return false;
   }
   return true;
 }
@@ -752,7 +747,7 @@ function doCheck(){
     S.locked=true; $check.disabled=true;
     ch.el.classList.remove("pending","win"); ch.el.classList.add("bad");
     renderHints();
-    var why=(res.reason==="longface")?"긴 면끼리 붙었어요. 짧은 면으로 이어 주세요."
+    var why=(res.reason==="longface")?"긴 면이 다른 칩에 완전히 맞닿았어요. 반 칸만 겹치게 옮겨 볼까요?"
            :(res.reason==="turn")?"칩을 90° 돌려서 다시 놓아 볼까요?"
            :"한 줄 세 칸이 곱셈식이 되게 놓아 볼까요?";
     showVerdict(false,"아쉬워요, 다시 해 볼까요?",why);
