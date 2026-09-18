@@ -109,12 +109,12 @@ body{font-family:var(--font);background:var(--canvas);color:var(--ink);
   box-shadow:0 8px 20px -6px rgba(5,0,56,.16)}
 .vtext.sub{font-size:clamp(12px,1.8vh,19px);font-weight:600;color:var(--slate)}
 .vbtn{pointer-events:auto;font-size:clamp(13px,1.9vh,20px)!important;padding:10px 26px!important}
+
 .vrow{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;pointer-events:auto}
-.peekbar{position:absolute;left:0;right:0;bottom:6px;display:flex;gap:8px;align-items:center;
-  justify-content:center;z-index:95;pointer-events:none}
-.peekbar .btn{pointer-events:auto;font-size:clamp(12px,1.7vh,16px);padding:8px 16px;
-  background:rgba(255,255,255,.92)}
-.peekbar .btn-pri{background:var(--ink)}
+.peekbar{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);display:flex;gap:8px;
+  padding:6px 10px;background:rgba(255,255,255,.93);border:1px solid var(--hairline);
+  border-radius:var(--radius-full);z-index:95}
+.peekbar .btn{font-size:clamp(11px,1.5vh,15px);padding:7px 14px}
 
 @media (max-aspect-ratio: 1/1){
   .stage{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto;gap:8px}
@@ -125,8 +125,8 @@ body{font-family:var(--font);background:var(--canvas);color:var(--ink);
 }
 @media (max-width:620px){
   .brand h1{font-size:15px}
+  .tab{padding:6px 10px;font-size:12px}
   .actions .btn{padding:8px 11px}
-  .tab{padding:7px 10px;font-size:12px}
   .tag{display:none}
 }
 </style>
@@ -215,6 +215,7 @@ function longFaceOkB(b,r,c,d){
   return true;
 }
 function normPlace(r,c,d,v0,v1){
+  /* 180/270 방향은 시작 칸과 두 수를 맞바꾸면 0/90 방향과 완전히 같은 배치가 된다 */
   if(d[0]<0||d[1]<0) return {r:r+d[0],c:c+d[1],d:[-d[0],-d[1]],v0:v1,v1:v0};
   return {r:r,c:c,d:d,v0:v0,v1:v1};
 }
@@ -400,7 +401,7 @@ function buildProblem(stage){
 
 /* ---------- 상태 ---------- */
 var S={stage:1,prob:null,chips:[],grid:{},cell:60,traySize:60,hint:false,locked:false,pendingId:-1,
-       peek:false,resultChipId:-1,found:[],lastOk:false,lastMain:"",lastSub:""};
+       peek:false,resultChipId:-1,found:{},foundCount:0};
 var $board=document.getElementById("board"), $wrap=document.getElementById("boardwrap"),
     $slots=document.getElementById("slots"), $layer=document.getElementById("layer"),
     $msg=document.getElementById("msg"), $verdict=document.getElementById("verdict"),
@@ -428,14 +429,14 @@ function buildChipEl(chip){
 function gapFor(size){ return Math.max(2,Math.round(size*0.055)); }
 function sizeChip(chip,size){
   chip.size=size;
-  var gap=gapFor(size);
-  chip.el.style.width=(size*2+gap)+"px";
+  var gap=gapFor(size), tw=size-gap;          /* 타일 = 한 칸 - 틈 */
+  chip.el.style.width=(size*2)+"px";          /* 칩 몸통 = 정확히 두 칸 */
   chip.el.style.height=size+"px";
   chip.el.style.gap=gap+"px";
-  chip.t0.style.width=size+"px"; chip.t0.style.height=size+"px";
-  chip.t1.style.width=size+"px"; chip.t1.style.height=size+"px";
-  chip.t0.innerHTML=digitHTML(chip.v[0],size,chip.color);
-  chip.t1.innerHTML=digitHTML(chip.v[1],size,chip.color);
+  chip.t0.style.width=tw+"px"; chip.t0.style.height=tw+"px";
+  chip.t1.style.width=tw+"px"; chip.t1.style.height=tw+"px";
+  chip.t0.innerHTML=digitHTML(chip.v[0],tw,chip.color);
+  chip.t1.innerHTML=digitHTML(chip.v[1],tw,chip.color);
 }
 function moveChip(chip,x,y,rot,anim){
   chip.x=x; chip.y=y; chip.rot=rot;
@@ -468,7 +469,7 @@ function layout(){
   S.traySize=Math.max(18,Math.min(Math.floor(ts),S.cell));
   var i;
   for(i=0;i<$slots.children.length;i++){
-    $slots.children[i].style.width=(S.traySize*2+gapFor(S.traySize))+"px";
+    $slots.children[i].style.width=(S.traySize*2)+"px";
     $slots.children[i].style.height=S.traySize+"px";
   }
   positionAll();
@@ -485,8 +486,8 @@ function cellCenter(r,c){
   return {x:b.left+(c+0.5)*S.cell, y:b.top+(r+0.5)*S.cell};
 }
 function chipCenterFor(r,c,d,size){
-  var a=cellCenter(r,c), g=gapFor(size);
-  return {x:a.x+d[1]*(size+g)/2, y:a.y+d[0]*(size+g)/2};
+  var a=cellCenter(r,c);
+  return {x:a.x+d[1]*size/2, y:a.y+d[0]*size/2};   /* 두 칸 중심의 중점 */
 }
 function positionAll(){
   S.chips.forEach(function(ch){
@@ -508,10 +509,11 @@ function clearAll(){
   S.chips=[]; $slots.innerHTML="";
   var hs=$layer.querySelectorAll(".hintcell"),i;
   for(i=0;i<hs.length;i++) hs[i].parentNode.removeChild(hs[i]);
-  hidePeek();
   $verdict.classList.remove("show"); $verdict.innerHTML="";
-  S.locked=false; S.peek=false; S.pendingId=-1; S.resultChipId=-1; S.found=[];
-  S.lastMain=""; $check.disabled=true;
+  hidePeek();
+  S.locked=false; S.peek=false; S.pendingId=-1; S.resultChipId=-1;
+  S.found={}; S.foundCount=0;
+  $check.disabled=true;
 }
 function renderProblem(){
   clearAll();
@@ -529,7 +531,7 @@ function renderProblem(){
   }
   p.tray.forEach(function(tc,idx){
     var ch={id:id++,v:[tc.v[0],tc.v[1]],color:COLORS[(idx+4)%COLORS.length],where:"tray",
-            slot:idx,rot:0,d:[0,1],fixed:false,problem:false,isAnswer:tc.ok};
+            slot:idx,rot:0,d:[0,1],fixed:false,isAnswer:tc.ok};
     buildChipEl(ch); S.chips.push(ch);
   });
   rebuildGrid();
@@ -607,26 +609,50 @@ function occupiedBy(r,c,ignoreId){
   var g=S.grid[key(r,c)];
   return (g&&g.id!==ignoreId)?g.id:null;
 }
+/* 두 칸 모두 판 안이고 비어 있는지 (겹침 방지 핵심 검사) */
+function cellsFree(r,c,d,id){
+  if(!inBounds(r,c)||!inBounds(r+d[0],c+d[1])) return false;
+  return occupiedBy(r,c,id)===null && occupiedBy(r+d[0],c+d[1],id)===null;
+}
+/* (r0,c0) 주변에서 방향 d로 놓을 수 있는 가장 가까운 빈 두 칸 */
+function findFreeFor(r0,c0,d,id){
+  var best=null,bd=1e9,dr,dc,r,c,dist;
+  for(dr=-2;dr<=2;dr++){
+    for(dc=-2;dc<=2;dc++){
+      r=r0+dr; c=c0+dc;
+      if(!cellsFree(r,c,d,id)) continue;
+      dist=Math.abs(dr)+Math.abs(dc);
+      if(dist<bd){ bd=dist; best={r:r,c:c}; }
+    }
+  }
+  return best;
+}
+/* 판에서 편집이 일어나면 판정 결과 표시를 초기화 */
+function markEdited(ch){
+  ch.el.classList.remove("win","bad");
+  ch.el.classList.add("pending");
+  S.pendingId=ch.id; $check.disabled=false;
+  if(S.peek) peekEdited();
+}
 function rotateChip(ch){
   var rot=(((ch.rot||0)+90)%360), d=dirFromRot(rot);
   if(ch.where==="board"){
-    var r=ch.r,c=ch.c,r2=r+d[0],c2=c+d[1];
-    if(!inBounds(r2,c2)||occupiedBy(r2,c2,ch.id)!==null){
-      var cells=[[ch.r+ch.d[0],ch.c+ch.d[1]]];
-      var ar=cells[0][0]-d[0], ac=cells[0][1]-d[1];
-      if(inBounds(ar,ac)&&inBounds(cells[0][0],cells[0][1])&&occupiedBy(ar,ac,ch.id)===null){
+    var r=ch.r,c=ch.c;
+    if(!cellsFree(r,c,d,ch.id)){
+      var ar=ch.r+ch.d[0]-d[0], ac=ch.c+ch.d[1]-d[1], f;
+      if(cellsFree(ar,ac,d,ch.id)){
         r=ar; c=ac;
       }else{
-        setMsg("그 방향으로는 돌릴 자리가 없어요.");
-        return;
+        f=findFreeFor(ch.r,ch.c,d,ch.id);
+        if(!f){ setMsg("그 방향으로는 돌릴 자리가 없어요.","no"); return; }
+        r=f.r; c=f.c;
       }
     }
     ch.rot=rot; ch.d=d; ch.r=r; ch.c=c;
     var p=chipCenterFor(r,c,d,S.cell);
     moveChip(ch,p.x,p.y,rot,true);
-    ch.el.classList.remove("win","bad");
-    if(!ch.fixed){ ch.el.classList.add("pending"); S.pendingId=ch.id; $check.disabled=false; }
-    rebuildGrid(); renderHints(); peekEdited();
+    rebuildGrid(); renderHints();
+    markEdited(ch);
   }else{
     ch.rot=rot; ch.d=d;
     moveChip(ch,ch.x,ch.y,rot,true);
@@ -634,8 +660,8 @@ function rotateChip(ch){
   setMsg("칩을 90° 돌렸어요. (현재 "+rot+"°)");
 }
 function snapToGrid(ch){
-  var b=$board.getBoundingClientRect(), d=dirFromRot(ch.rot), g=gapFor(S.cell);
-  var ax=ch.x-d[1]*(S.cell+g)/2, ay=ch.y-d[0]*(S.cell+g)/2;
+  var b=$board.getBoundingClientRect(), d=dirFromRot(ch.rot);
+  var ax=ch.x-d[1]*S.cell/2, ay=ch.y-d[0]*S.cell/2;
   var c=Math.round((ax-b.left)/S.cell-0.5), r=Math.round((ay-b.top)/S.cell-0.5);
   var r2=r+d[0], c2=c+d[1];
   if(r<0) r=0; if(c<0) c=0;
@@ -651,30 +677,36 @@ function snapToGrid(ch){
 }
 function toTray(ch,anim){
   ch.where="tray";
+  if(!ch.problem){ ch.fixed=false; ch.el.classList.remove("fix"); }
   ch.el.classList.remove("pending","bad","win");
   sizeChip(ch,S.traySize);
   var rect=$slots.children[ch.slot].getBoundingClientRect();
   moveChip(ch,rect.left+rect.width/2,rect.top+rect.height/2,ch.rot,anim!==false);
   if(S.pendingId===ch.id){ S.pendingId=-1; $check.disabled=true; }
-  ch.el.classList.remove("fix");
-  rebuildGrid(); renderHints(); peekEdited();
+  rebuildGrid(); renderHints();
 }
 function dropChip(ch){
   var b=$board.getBoundingClientRect();
   if(ch.x<b.left-S.cell||ch.x>b.right+S.cell||ch.y<b.top-S.cell||ch.y>b.bottom+S.cell){
     toTray(ch); setMsg("칩을 게임판 위에 놓아 주세요."); return;
   }
+  /* 내가 놓기 전에, 판에 올려둔 다른 (문제 칩이 아닌) 칩은 트레이로 되돌린다 */
+  S.chips.forEach(function(o){ if(o.id!==ch.id&&!o.problem&&o.where==="board") toTray(o); });
   snapToGrid(ch);
-  if(occupiedBy(ch.r,ch.c,ch.id)!==null||occupiedBy(ch.r+ch.d[0],ch.c+ch.d[1],ch.id)!==null){
-    toTray(ch); setMsg("이미 칩이 있는 자리예요.","no"); return;
+  var slid=false;
+  if(!cellsFree(ch.r,ch.c,ch.d,ch.id)){
+    var f=findFreeFor(ch.r,ch.c,ch.d,ch.id);
+    if(!f){ toTray(ch); setMsg("주변에 빈 자리가 없어요. 다른 곳에 놓아 주세요.","no"); return; }
+    ch.r=f.r; ch.c=f.c;
+    var q=chipCenterFor(ch.r,ch.c,ch.d,S.cell);
+    moveChip(ch,q.x,q.y,ch.rot,true);
+    slid=true;
   }
-  S.chips.forEach(function(o){ if(o.id!==ch.id&&!o.fixed&&o.where==="board") toTray(o); });
   ch.where="board";
-  ch.el.classList.remove("win","bad");
-  ch.el.classList.add("pending");
-  S.pendingId=ch.id; $check.disabled=false;
-  rebuildGrid(); renderHints(); peekEdited();
-  setMsg("탭하면 90° 회전 · 다 되면 ‘확인’을 누르세요.");
+  rebuildGrid(); renderHints();
+  markEdited(ch);
+  setMsg(slid?"칩이 겹치지 않게 옆 빈 자리로 옮겼어요."
+             :"탭하면 90° 회전 · 다 되면 ‘확인’을 누르세요.");
 }
 
 function judgeChip(ch){
@@ -693,89 +725,96 @@ function eqText(t){
 function placeSig(ch){
   var a=ch.r+","+ch.c+":"+ch.v[0];
   var b=(ch.r+ch.d[0])+","+(ch.c+ch.d[1])+":"+ch.v[1];
-  return (a<b)?(a+"|"+b):(b+"|"+a);
+  return (a<b)?a+"|"+b:b+"|"+a;
 }
 function doCheck(){
   if(S.pendingId<0) return;
   var ch=chipById(S.pendingId), res=judgeChip(ch);
   if(res.reason==="touch"){ setMsg("아직 다른 칩에 닿지 않았어요. 이어 붙여 보세요."); return; }
-  hidePeek();
-  S.resultChipId=ch.id; S.peek=false; S.locked=true; $check.disabled=true;
-  ch.el.classList.remove("pending");
+  S.resultChipId=ch.id; S.peek=false; hidePeek();
   if(res.ok){
-    var sig=placeSig(ch), fresh=(S.found.indexOf(sig)<0);
-    if(fresh) S.found.push(sig);
-    ch.el.classList.remove("bad"); ch.el.classList.add("win");
+    S.locked=true; $check.disabled=true;
+    ch.el.classList.remove("pending","bad"); ch.el.classList.add("win");
     ch.fixed=true; ch.el.classList.add("fix");
     renderHints();
-    var sub=(!fresh)?"이미 찾은 배치예요."
-           :(S.found.length>1)?("또 다른 정답 배치예요!  지금까지 "+S.found.length+"가지")
-           :"규칙에 맞게 연결했어요!";
+    var sig=placeSig(ch), dup=!!S.found[sig], sub;
+    if(!dup){ S.found[sig]=1; S.foundCount++; }
+    if(dup) sub="이미 찾은 배치예요.";
+    else if(S.foundCount>1) sub="또 다른 정답 배치예요!  지금까지 "+S.foundCount+"가지";
+    else sub="규칙에 맞게 연결했어요!";
     showVerdict(true,res.eq,sub);
   }else{
-    ch.el.classList.remove("win"); ch.el.classList.add("bad");
+    S.locked=true; $check.disabled=true;
+    ch.el.classList.remove("pending","win"); ch.el.classList.add("bad");
+    renderHints();
     showVerdict(false,"아쉬워요, 다시 해 볼까요?","");
   }
 }
-function mkBtn(label,pri,fn){
-  var b=document.createElement("button");
-  b.className="btn "+(pri?"btn-pri":"btn-sec")+" vbtn";
-  b.textContent=label;
-  b.addEventListener("click",fn);
-  return b;
-}
 function showVerdict(ok,main,sub){
-  S.lastOk=ok; S.lastMain=main; S.lastSub=sub||"";
   $verdict.innerHTML='<div class="vmark '+(ok?"ok":"no")+'">'+(ok?"✓":"✕")+'</div>'+
     '<div class="vtext">'+main+'</div>'+(sub?'<div class="vtext sub">'+sub+'</div>':"");
   var row=document.createElement("div");
   row.className="vrow";
-  row.appendChild(mkBtn(ok?"다른 배치 해보기":"게임판 보기",false,peekBoard));
-  row.appendChild(ok?mkBtn("다음 문제",true,newProblem):mkBtn("다시하기",true,resetProblem));
+  var b1=document.createElement("button");
+  b1.className="btn btn-sec vbtn";
+  b1.textContent=ok?"다른 배치 해보기":"게임판 보기";
+  b1.addEventListener("click",peekBoard);
+  row.appendChild(b1);
+  var b2=document.createElement("button");
+  b2.className="btn btn-pri vbtn";
+  if(ok){
+    b2.textContent="다음 문제";
+    b2.addEventListener("click",newProblem);
+  }else{
+    b2.textContent="다시하기";
+    b2.addEventListener("click",resetProblem);
+  }
+  row.appendChild(b2);
   $verdict.appendChild(row);
   $verdict.classList.add("show");
   setMsg(ok?("성공!  "+main):main, ok?"ok":"no");
 }
-function showResult(){
-  if(!S.lastMain) return;
+/* ---------- 판정 후에도 게임판을 보며 칩을 다시 움직일 수 있게 ---------- */
+function hidePeek(){
+  var el=document.getElementById("peekbar");
+  if(el&&el.parentNode) el.parentNode.removeChild(el);
+}
+function peekEdited(){
+  var b=document.getElementById("peekBack");
+  if(b&&b.parentNode) b.parentNode.removeChild(b);
+}
+function showPeek(){
   hidePeek();
-  S.peek=false; S.locked=true; S.pendingId=-1; $check.disabled=true;
-  var ch=chipById(S.resultChipId);
-  if(ch&&ch.where==="board"&&S.lastOk){ ch.fixed=true; ch.el.classList.add("fix"); }
-  renderHints();
-  showVerdict(S.lastOk,S.lastMain,S.lastSub);
+  var bar=document.createElement("div");
+  bar.className="peekbar"; bar.id="peekbar";
+  var b0=document.createElement("button");
+  b0.className="btn btn-sec"; b0.id="peekBack"; b0.textContent="결과 다시 보기";
+  b0.addEventListener("click",function(){ $verdict.classList.add("show"); });
+  bar.appendChild(b0);
+  var b1=document.createElement("button");
+  b1.className="btn btn-sec"; b1.textContent="다시하기";
+  b1.addEventListener("click",resetProblem);
+  bar.appendChild(b1);
+  var b2=document.createElement("button");
+  b2.className="btn btn-pri"; b2.textContent="다음 문제";
+  b2.addEventListener("click",newProblem);
+  bar.appendChild(b2);
+  $wrap.appendChild(bar);
 }
 function peekBoard(){
-  $verdict.classList.remove("show"); $verdict.innerHTML="";
+  $verdict.classList.remove("show");
   S.peek=true; S.locked=false;
   var ch=chipById(S.resultChipId);
   if(ch&&ch.where==="board"){
     ch.fixed=false; ch.el.classList.remove("fix");
     S.pendingId=ch.id; $check.disabled=false;
   }
-  renderHints();
-  showPeek(true);
+  renderHints(); showPeek();
   setMsg("칩을 옮기거나 탭해서 돌린 뒤 ‘확인’을 누르면 다시 판정해요.");
 }
-function showPeek(withResult){
-  hidePeek();
-  var bar=document.createElement("div");
-  bar.className="peekbar"; bar.id="peekbar";
-  if(withResult) bar.appendChild(mkBtn("결과 다시 보기",false,showResult));
-  bar.appendChild(mkBtn(S.lastOk?"다음 문제":"다시하기",true,S.lastOk?newProblem:resetProblem));
-  $wrap.appendChild(bar);
-}
-function hidePeek(){
-  var el=document.getElementById("peekbar");
-  if(el&&el.parentNode) el.parentNode.removeChild(el);
-}
-function peekEdited(){
-  if(!S.peek) return;
-  showPeek(false);
-}
 function resetProblem(){
-  hidePeek();
   $verdict.classList.remove("show"); $verdict.innerHTML="";
+  hidePeek();
   S.locked=false; S.peek=false; S.resultChipId=-1;
   S.chips.forEach(function(ch){
     if(ch.problem) return;
@@ -789,6 +828,7 @@ function resetProblem(){
   setMsg("다시 해 볼까요? 칩을 끌어서 연결해 보세요.");
 }
 function newProblem(){
+  hidePeek();
   var p=buildProblem(S.stage);
   if(!p){ setMsg("문제를 만들지 못했어요. 다시 눌러 주세요.","no"); return; }
   S.prob=p; renderProblem();
